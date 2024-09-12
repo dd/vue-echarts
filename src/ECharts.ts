@@ -13,7 +13,7 @@ import {
   nextTick,
   watchEffect,
   getCurrentInstance,
-  Vue2
+  Vue2,
 } from "vue-demi";
 import { init as initChart } from "echarts/core";
 
@@ -101,11 +101,29 @@ export default defineComponent({
     const nonEventAttrs = computed(() => omitOn(attrs));
     const nativeListeners: Record<string, unknown> = {};
 
-    // @ts-expect-error listeners for Vue 2 compatibility
-    const listeners = getCurrentInstance().proxy.$listeners;
     const realListeners: Record<string, any> = {};
 
-    if (!listeners) {
+    if (Vue2) {
+      // This is for Vue 2.
+      // We just need to distinguish normal events and `native:<event>` events and
+      // collect them into `realListeners` and `nativeListeners` respectively.
+      // For `native:<event>` events, we just strip the `native:` part and collect them
+      // into `nativeListeners` so that we can bind them to the root element directly.
+      // native:click   -> click
+      // ~native:click  -> ~click
+      // &~!native:click -> &~!click
+
+      // @ts-expect-error listeners for Vue 2 compatibility
+      const listeners = getCurrentInstance().proxy.$listeners;
+
+      Object.keys(listeners).forEach(key => {
+        if (NATIVE_EVENT_RE.test(key)) {
+          nativeListeners[key.replace(NATIVE_EVENT_RE, "$1")] = listeners[key];
+        } else {
+          realListeners[key] = listeners[key];
+        }
+      });
+    } else {
       // This is for Vue 3.
       // We are converting all `on<Event>` props to event listeners compatible with Vue 2
       // and collect them into `realListeners` so that we can bind them to the chart instance
@@ -138,22 +156,6 @@ export default defineComponent({
 
           realListeners[event] = attrs[key];
         });
-    } else {
-      // This is for Vue 2.
-      // We just need to distinguish normal events and `native:<event>` events and
-      // collect them into `realListeners` and `nativeListeners` respectively.
-      // For `native:<event>` events, we just strip the `native:` part and collect them
-      // into `nativeListeners` so that we can bind them to the root element directly.
-      // native:click   -> click
-      // ~native:click  -> ~click
-      // &~!native:click -> &~!click
-      Object.keys(listeners).forEach(key => {
-        if (NATIVE_EVENT_RE.test(key)) {
-          nativeListeners[key.replace(NATIVE_EVENT_RE, "$1")] = listeners[key];
-        } else {
-          realListeners[key] = listeners[key];
-        }
-      });
     }
 
     function init(option?: Option) {
